@@ -175,20 +175,20 @@ def metrics(pred_data):
             class_boxes = pred_boxes[score_mask] * [h, w, h, w]
 
             if score_mask.any():
-                nms_index = apply_nms(class_boxes, class_box_scores, config.nms_thershold, config.max_boxes) # nms_thershold:0.5 max_boxes:100
+                # nms_index = apply_nms(class_boxes, class_box_scores, config.nms_thershold, config.max_boxes) # nms_thershold:0.5 max_boxes:100
                 # apply_softnms( dets, scores,method=2, thresh=0.001, Nt=0.1, sigma=0.5 )
-                # nms_index = apply_softnms(class_boxes, class_box_scores, config.softnms_sigma)
+                nms_index = apply_softnms(class_boxes, class_box_scores, config.softnms_sigma)
                 class_boxes = class_boxes[nms_index]
                 class_box_scores = class_box_scores[nms_index]
 
                 final_boxes += class_boxes.tolist()
                 final_score += class_box_scores.tolist()
                 final_label += [classs_dict[val_cls_dict[c]]] * len(class_box_scores)
-        # 在最后只保留100个框 不过感觉得分有点低 而且label全部都是1 可能训练不充分？
-        max_boxes_filter = np.array(final_score).argsort()[::-1][:config.max_boxes]
-        final_boxes = np.array(final_boxes)[max_boxes_filter].tolist()
-        final_score = np.array(final_score)[max_boxes_filter].tolist()
-        final_label = np.array(final_label)[max_boxes_filter].tolist()
+        # # 在最后只保留100个框 不过感觉得分有点低 而且label全部都是1 可能训练不充分？
+        # max_boxes_filter = np.array(final_score).argsort()[::-1][:config.max_boxes]
+        # final_boxes = np.array(final_boxes)[max_boxes_filter].tolist()
+        # final_score = np.array(final_score)[max_boxes_filter].tolist()
+        # final_label = np.array(final_label)[max_boxes_filter].tolist()
         for loc, label, score in zip(final_boxes, final_label, final_score):
             res = {}
             res['image_id'] = img_id

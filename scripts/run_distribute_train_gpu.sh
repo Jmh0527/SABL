@@ -36,7 +36,7 @@ then
   mpirun -n $DEVICE_NUM --allow-run-as-root --output-filename log_output --merge-stderr-to-stdout \
         python train.py  \
         --run_platform="GPU" \
-        --batch_size=6 \
+        --batch_size=2 \
         --distribute=True  \
         --lr=$LR \
         --dataset=$DATASET \
@@ -49,7 +49,7 @@ then
   mpirun -n $DEVICE_NUM --allow-run-as-root --output-filename log_output --merge-stderr-to-stdout \
   python train.py  \
         --run_platform="GPU" \
-        --batch_size=6 \
+        --batch_size=2 \
         --distribute=True  \
         --lr=$LR \
         --dataset=$DATASET \

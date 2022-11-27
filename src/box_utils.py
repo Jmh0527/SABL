@@ -39,7 +39,8 @@ class GeneratDefaultBoxes():
         anchor_size = np.array(config.anchor_size) # [32, 64, 128, 256, 512] 对滴 也要step * 4
         self.default_boxes = []
         for idex, feature_size in enumerate(config.feature_size):# 按特征图操作的而不是fk [132, 66, 33, 17, 9] 
-            base_size = anchor_size[idex] / config.img_shape[0] # 归一化 隐性要求是img_shape[0] == img_shape[1]
+            # base_size = anchor_size[idex] / config.img_shape[0] # 归一化 隐性要求是img_shape[0] == img_shape[1]
+            base_size = anchor_size[idex] 
             size1 = base_size * scales[0] # 三个面积尺度
             size2 = base_size * scales[1]
             size3 = base_size * scales[2]
@@ -54,7 +55,8 @@ class GeneratDefaultBoxes():
 
             for i, j in it.product(range(feature_size), repeat=2): # range(5),repeat=2 :(0,0)(0,1)...(4,4)
                 for h, w in all_sizes:
-                    cx, cy = j / fk[idex], i / fk[idex]
+                    # cx, cy = j / fk[idex], i / fk[idex]
+                    cx, cy = j / fk[idex] * config.img_shape[0], i / fk[idex] * config.img_shape[0]
                     self.default_boxes.append([cy, cx, h, w]) # 迭代五次 最后是75*75+37*37+18*18+9*9+4*4
 
         def to_ltrb(cy, cx, h, w):
@@ -72,13 +74,15 @@ class GeneratSquareBoxes():
         anchor_size = np.array(4 * np.array(config.steps)) 
         self.default_square_boxes = []
         for idex, feature_size in enumerate(config.feature_size):# 按特征图操作的 
-            base_size = anchor_size[idex] / config.img_shape[0] # 归一化 隐性要求是img_shape[0] == img_shape[1]
+            # base_size = anchor_size[idex] / config.img_shape[0] # 归一化 隐性要求是img_shape[0] == img_shape[1]
+            base_size = anchor_size[idex]
             all_sizes = []
             all_sizes.append((base_size, base_size))
 
             for i, j in it.product(range(feature_size), repeat=2): # range(5),repeat=2 :(0,0)(0,1)...(4,4)
                 for h, w in all_sizes:
-                    cx, cy = j / fk[idex], i / fk[idex]
+                    # cx, cy = j / fk[idex], i / fk[idex]
+                    cx, cy = j / fk[idex] * config.img_shape[0], i / fk[idex] * config.img_shape[0]
                     self.default_square_boxes.append([cy, cx, h, w]) # len(self.default_square_boxes)=7555 迭代五次 最后是75*75+38*38+19*19+10*10+5*5=7555
     
         def to_ltrb(cy, cx, h, w):
@@ -289,8 +293,8 @@ def retinanet_bboxes_encode(boxes):
         union_vol = vol_anchors + (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) - inter_vol # 相并面积
         jaccard = inter_vol / union_vol
         return np.squeeze(jaccard)
-    # import pdb 
-    # pdb.set_trace()
+    import pdb 
+    pdb.set_trace()
     pre_scores = np.zeros((config.num_retinanet_boxes*9), dtype=np.float32) # num_retinanet_boxes*9: 67995
     t_boxes = np.zeros((config.num_retinanet_boxes*9, 4), dtype=np.float32)
     t_label = np.zeros((config.num_retinanet_boxes*9), dtype=np.int64)
@@ -323,8 +327,8 @@ def retinanet_bboxes_encode(boxes):
 
     proposals = default_square_boxes_ltrb[index_for_bucket//9]
     gt = t_boxes_for_bucket[index_for_bucket//9]
-    # import pdb
-    # pdb.set_trace()
+    import pdb
+    pdb.set_trace()
     offsets, offsets_weights, bucket_labels, bucket_cls_weights = bbox2bucket(proposals,gt,14,3)
 
     bbox = np.zeros((config.num_retinanet_boxes, 28))
@@ -423,7 +427,7 @@ class retinanetInferWithDecoder():
     """
     def __init__(self, default_boxes, bbox, t_label, buk_label):
         super(retinanetInferWithDecoder, self).__init__()
-        self.default_boxes = default_boxes # 这里传入的default_boxes是加上bucket的方框(-1,32)
+        self.default_boxes = default_boxes
         self.bbox_reg_pred, self.scores, self.bbox_cls_pred = bbox, t_label, buk_label
         from mindspore.ops import operations as P
         import mindspore.common.dtype as mstype
@@ -588,7 +592,7 @@ class retinanetInferWithDecoder():
         assert cls_preds.shape[0] == bboxes.shape[0] and offset_preds.shape[0] == bboxes.shape[0]
         decoded_bboxes = self.bucket2bbox(bboxes, cls_preds, offset_preds,
                                      14, 3.0,
-                                     max_shape, True)
+                                     max_shape)
 
         return decoded_bboxes
     
@@ -622,8 +626,7 @@ class retinanetInferWithDecoder():
                     offset_preds,
                     num_buckets,
                     scale_factor=1.0,
-                    max_shape=None,
-                    clip_border=True):
+                    max_shape=None):
         """Apply bucketing estimation (cls preds) and fine regression (offset
         preds) to generate det bboxes.
 
@@ -689,11 +692,11 @@ class retinanetInferWithDecoder():
         y1 = t_buckets - t_offsets * bucket_h
         y2 = d_buckets - d_offsets * bucket_h
 
-        if clip_border and max_shape is not None:
-            x1 = ops.clip_by_value(x1,clip_value_min=0, clip_value_max=max_shape[1] - 1)
-            y1 = ops.clip_by_value(y1,clip_value_min=0, clip_value_max=max_shape[0] - 1)
-            x2 = ops.clip_by_value(x2,clip_value_min=0, clip_value_max=max_shape[1] - 1)
-            y2 = ops.clip_by_value(y2,clip_value_min=0, clip_value_max=max_shape[0] - 1)
+        # if clip_border and max_shape is not None:
+            # x1 = ops.clip_by_value(x1,clip_value_min=0, clip_value_max=max_shape[1] - 1)
+            # y1 = ops.clip_by_value(y1,clip_value_min=0, clip_value_max=max_shape[0] - 1)
+            # x2 = ops.clip_by_value(x2,clip_value_min=0, clip_value_max=max_shape[1] - 1)
+            # y2 = ops.clip_by_value(y2,clip_value_min=0, clip_value_max=max_shape[0] - 1)
             # x1 = x1.clamp(min=0, max=max_shape[1] - 1)
             # y1 = y1.clamp(min=0, max=max_shape[0] - 1)
             # x2 = x2.clamp(min=0, max=max_shape[1] - 1)
@@ -855,7 +858,7 @@ class retinanetInferWithDecoder2():
         # pdb.set_trace()
         decoded_bboxes = self.bucket2bbox(bboxes, cls_preds, offset_preds,
                                      14, 3.0,
-                                     max_shape, True)
+                                     max_shape)
 
         return decoded_bboxes
     
@@ -893,8 +896,7 @@ class retinanetInferWithDecoder2():
                     offset_preds,
                     num_buckets,
                     scale_factor=1.0,
-                    max_shape=None,
-                    clip_border=True):
+                    max_shape=None):
         """Apply bucketing estimation (cls preds) and fine regression (offset
         preds) to generate det bboxes.
 
@@ -962,11 +964,11 @@ class retinanetInferWithDecoder2():
         y1 = t_buckets - t_offsets * bucket_h
         y2 = d_buckets - d_offsets * bucket_h
 
-        if clip_border and max_shape is not None:
-            x1 = ops.clip_by_value(x1,clip_value_min=0, clip_value_max=max_shape[1] - 1)
-            y1 = ops.clip_by_value(y1,clip_value_min=0, clip_value_max=max_shape[0] - 1)
-            x2 = ops.clip_by_value(x2,clip_value_min=0, clip_value_max=max_shape[1] - 1)
-            y2 = ops.clip_by_value(y2,clip_value_min=0, clip_value_max=max_shape[0] - 1)
+        # if clip_border and max_shape is not None:
+        #     x1 = ops.clip_by_value(x1,clip_value_min=0, clip_value_max=max_shape[1] - 1)
+        #     y1 = ops.clip_by_value(y1,clip_value_min=0, clip_value_max=max_shape[0] - 1)
+        #     x2 = ops.clip_by_value(x2,clip_value_min=0, clip_value_max=max_shape[1] - 1)
+        #     y2 = ops.clip_by_value(y2,clip_value_min=0, clip_value_max=max_shape[0] - 1)
             # x1 = x1.clamp(min=0, max=max_shape[1] - 1)
             # y1 = y1.clamp(min=0, max=max_shape[0] - 1)
             # x2 = x2.clamp(min=0, max=max_shape[1] - 1)

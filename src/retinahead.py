@@ -74,18 +74,7 @@ def RegressionModel(in_channel, num_anchors, kernel_size=3, stride=1, pad_mod='s
     conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, pad_mode='same')
     conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, pad_mode='same')
     conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, pad_mode='same')
-    conv5 = nn.Conv2d(feature_size, num_anchors * 28, kernel_size=3, pad_mode='same')
-    return nn.SequentialCell([conv1, nn.ReLU(), conv2, nn.ReLU(), conv3, nn.ReLU(), conv4, nn.ReLU(), conv5])
-
-
-def BucketModel(in_channel, num_anchors, kernel_size=3, stride=1, pad_mod='same', feature_size=256):
-    conv1 = nn.Conv2d(in_channel, feature_size, kernel_size=3, pad_mode='same')
-    conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, pad_mode='same')
-    conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, pad_mode='same')
-    conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, pad_mode='same')
-    conv5 = nn.Conv2d(feature_size, num_anchors * 28, kernel_size=3, pad_mode='same')
-    return nn.SequentialCell([conv1, nn.ReLU(), conv2, nn.ReLU(), conv3, nn.ReLU(), conv4, nn.ReLU(), conv5])
-
+    return nn.SequentialCell([conv1, nn.ReLU(), conv2, nn.ReLU(), conv3, nn.ReLU(), conv4, nn.ReLU()])
 
 class MultiBox(nn.Cell):
     """
@@ -106,27 +95,20 @@ class MultiBox(nn.Cell):
         num_default = config.num_default
         loc_layers = []
         cls_layers = []
-        buk_layers = []
         for k, out_channel in enumerate(out_channels):
             loc_layers += [RegressionModel(in_channel=out_channel, num_anchors=num_default[k])]
             cls_layers += [ClassificationModel(in_channel=out_channel, num_anchors=num_default[k])]
-            buk_layers += [BucketModel(in_channel=out_channel, num_anchors=num_default[k])]
 
         self.multi_loc_layers = nn.layer.CellList(loc_layers)
         self.multi_cls_layers = nn.layer.CellList(cls_layers)
-        self.multi_buk_layers = nn.layer.CellList(buk_layers)
-        self.flatten_concat = FlattenConcat(config)
 
     def construct(self, inputs):
         loc_outputs = ()
         cls_outputs = ()
-        buk_outputs = ()
         for i in range(len(self.multi_loc_layers)):
             loc_outputs += (self.multi_loc_layers[i](inputs[i]),)
             cls_outputs += (self.multi_cls_layers[i](inputs[i]),)
-            buk_outputs += (self.multi_buk_layers[i](inputs[i]),)
-        return self.flatten_concat(loc_outputs), self.flatten_concat(cls_outputs), self.flatten_concat(buk_outputs)
-
+        return loc_outputs, cls_outputs
 
 class SigmoidFocalClassificationLoss(nn.Cell):
     def __init__(self, weight=None, gamma=2.0, alpha=0.25, reduction='mean', avg_factor=None):
@@ -200,16 +182,27 @@ class retinahead(nn.Cell):
     def __init__(self, backbone, config, is_training=True):
         super(retinahead, self).__init__()
 
+        self.config = config
         self.fpn = FPN(backbone=backbone, config=config)
         self.multi_box = MultiBox(config)
         self.is_training = is_training
+        self.conv_loc = nn.Conv2d(256, 28, kernel_size=3, pad_mode='same')
+        self.conv_buk = nn.Conv2d(256, 28, kernel_size=3, pad_mode='same')
         if not is_training:
             self.activation = P.Sigmoid()
 
     def construct(self, inputs):
         features = self.fpn(inputs)
-        pred_loc, pred_label, pred_buk = self.multi_box(features)
-        return pred_loc, pred_label, pred_buk
+        pred_loc, pred_label = self.multi_box(features)
+        pred_loc_res = ()
+        pred_buk_res = ()
+        for i in range(len(pred_loc)):
+            pred_loc_res += (self.conv_loc(pred_loc[i]),)
+            pred_buk_res += (self.conv_buk(pred_loc[i]),)
+        pred_loc_res = FlattenConcat(self.config)(pred_loc_res)
+        pred_label_res = FlattenConcat(self.config)(pred_label)
+        pred_buk_res = FlattenConcat(self.config)(pred_buk_res)
+        return pred_loc_res, pred_label_res, pred_buk_res
 
 
 class retinanetWithLossCell(nn.Cell):
@@ -469,8 +462,7 @@ class retinanetInferWithDecoder(nn.Cell):
                     offset_preds,
                     num_buckets,
                     scale_factor=1.0,
-                    max_shape=None,
-                    clip_border=True):
+                    max_shape=None):
         """Apply bucketing estimation (cls preds) and fine regression (offset
         preds) to generate det bboxes.
 
@@ -538,11 +530,11 @@ class retinanetInferWithDecoder(nn.Cell):
         y1 = t_buckets - t_offsets * bucket_h
         y2 = d_buckets - d_offsets * bucket_h
 
-        if clip_border and max_shape is not None:
-            x1 = ops.clip_by_value(x1,clip_value_min=0, clip_value_max=max_shape[1] - 1)
-            y1 = ops.clip_by_value(y1,clip_value_min=0, clip_value_max=max_shape[0] - 1)
-            x2 = ops.clip_by_value(x2,clip_value_min=0, clip_value_max=max_shape[1] - 1)
-            y2 = ops.clip_by_value(y2,clip_value_min=0, clip_value_max=max_shape[0] - 1)
+        # if clip_border and max_shape is not None:
+        #     x1 = ops.clip_by_value(x1,clip_value_min=0, clip_value_max=max_shape[1] - 1)
+        #     y1 = ops.clip_by_value(y1,clip_value_min=0, clip_value_max=max_shape[0] - 1)
+        #     x2 = ops.clip_by_value(x2,clip_value_min=0, clip_value_max=max_shape[1] - 1)
+        #     y2 = ops.clip_by_value(y2,clip_value_min=0, clip_value_max=max_shape[0] - 1)
             # x1 = x1.clamp(min=0, max=max_shape[1] - 1)
             # y1 = y1.clamp(min=0, max=max_shape[0] - 1)
             # x2 = x2.clamp(min=0, max=max_shape[1] - 1)

@@ -68,6 +68,10 @@ def retinanet_eval(dataset_path, ckpt_path):
         for batch_idx in range(img_np.shape[0]):
             bboxes, labels, scores, confids = output[0].asnumpy(), output[1].asnumpy(), output[2].asnumpy(), output[3].asnumpy() # 做了squeezee而且val的时候batch_size都是1 所以不用[batch_idx]了
             bboxes = bboxes / scale
+            # ************************************************************ #
+            bboxes[:,[0,2]] = np.clip(bboxes, 0, image_shape[0]) # 有待核验
+            bboxes[:,[1,3]] = np.clip(bboxes, 0, image_shape[1])
+            # ************************************************************ #
             pred_data.append({"boxes": bboxes.astype(np.float16), # 转为float16之后，显存保持3000不变，否则会一直涨，最后能涨到30000
                               "box_scores": (scores * confids).astype(np.float16), # 在retinahead的decoder中转为了(ymin xmin ymax xmax)
                               "labels":labels.astype(np.int16),
