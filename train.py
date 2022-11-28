@@ -162,6 +162,8 @@ def train_retinanet_resnet101():
             net.to_float(mindspore.float16)
         else:
             net.to_float(mindspore.float32)
+        import pdb 
+        pdb.set_trace()
         init_net_param(net)
         load_param_into_net(net, param_res_for_retina)
         lr = Tensor(get_lr(global_step=config.global_step,

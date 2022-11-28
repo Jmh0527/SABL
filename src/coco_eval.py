@@ -156,8 +156,8 @@ def metrics(pred_data):
         box_scores = sample['box_scores'] # box_scores.shape:(1000, )
         labels = sample['labels'] # (1000,)
         img_id = sample['img_id']
-        h = config.feature_size[0] * 8
-        w = config.feature_size[0] * 8
+        # h = config.feature_size[0] * 8
+        # w = config.feature_size[0] * 8
 
         final_boxes = []
         final_label = []
@@ -172,7 +172,8 @@ def metrics(pred_data):
             class_box_scores = box_scores[:, c]
             score_mask = class_box_scores > 0 # config.min_score:0.05 这一步已经在解码的时候完成了 只取了>0.05的前1000个框 但是又进行了rescoring 所以可能小于0.05 这里就不做筛选了
             class_box_scores = class_box_scores[score_mask] # score_mask.shape (7555, )
-            class_boxes = pred_boxes[score_mask] * [h, w, h, w]
+            # class_boxes = pred_boxes[score_mask] * [h, w, h, w]
+            class_boxes = pred_boxes[score_mask]
 
             if score_mask.any():
                 # nms_index = apply_nms(class_boxes, class_box_scores, config.nms_thershold, config.max_boxes) # nms_thershold:0.5 max_boxes:100

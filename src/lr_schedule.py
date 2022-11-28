@@ -44,21 +44,30 @@ def get_lr(global_step, lr_init, lr_end, lr_max, warmup_epochs1, warmup_epochs2,
     warmup_steps4 = warmup_steps3 + steps_per_epoch * warmup_epochs4
     warmup_steps5 = warmup_steps4 + steps_per_epoch * warmup_epochs5
     for i in range(total_steps):
-        if i < warmup_steps1:
-            lr = lr_init * (warmup_steps1 - i) / (warmup_steps1) + (lr_max * 1e-4) * i / (warmup_steps1 * 3)
-        elif warmup_steps1 <= i < warmup_steps2:
-            lr = 1e-3 * (warmup_steps2 - i) / (warmup_steps2 - warmup_steps1) + (lr_max * 1e-1) * (
-                i - warmup_steps1) / (warmup_steps2 - warmup_steps1)
-        elif warmup_steps2 <= i < warmup_steps3:
-            lr = 1e-2 * (warmup_steps3 - i) / (warmup_steps3 - warmup_steps2) + lr_max * (i - warmup_steps2) / (
-                warmup_steps3 - warmup_steps2)
+        if i < 500:
+            lr = 0.001 + (0.01 - 0.001) / 500 * i   # 0.001 -> 0.01
+        elif 500 <= i < 17 * steps_per_epoch:
+            lr = 0.01
+        elif 17 * steps_per_epoch <= i < 21 *  steps_per_epoch:
+            lr = 0.001
         else:
-            lr = lr_end + \
-                 (lr_max - lr_end) * \
-                 (1. + math.cos(math.pi * (i - warmup_steps3) / (total_steps - warmup_steps3))) / 2.
-        if lr < 0.0:
-            lr = 0.0
+            lr = 0.0001
         lr_each_step.append(lr)
+        # if i < warmup_steps1:
+        #     lr = lr_init * (warmup_steps1 - i) / (warmup_steps1) + (lr_max * 1e-4) * i / (warmup_steps1 * 3)
+        # elif warmup_steps1 <= i < warmup_steps2:
+        #     lr = 1e-3 * (warmup_steps2 - i) / (warmup_steps2 - warmup_steps1) + (lr_max * 1e-1) * (
+        #         i - warmup_steps1) / (warmup_steps2 - warmup_steps1)
+        # elif warmup_steps2 <= i < warmup_steps3:
+        #     lr = 1e-2 * (warmup_steps3 - i) / (warmup_steps3 - warmup_steps2) + lr_max * (i - warmup_steps2) / (
+        #         warmup_steps3 - warmup_steps2)
+        # else:
+        #     lr = lr_end + \
+        #          (lr_max - lr_end) * \
+        #          (1. + math.cos(math.pi * (i - warmup_steps3) / (total_steps - warmup_steps3))) / 2.
+        # if lr < 0.0:
+        #     lr = 0.0
+        # lr_each_step.append(lr)
 
     current_step = global_step
     lr_each_step = np.array(lr_each_step).astype(np.float32)

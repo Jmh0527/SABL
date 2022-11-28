@@ -245,8 +245,8 @@ class retinanetWithLossCell(nn.Cell):
         gt_buk:  Tensor(int32)   shape:(n, 7555, 32)
         num_matched_boxes:Tensor(shape=[], dtype=Float32, value= 27)
         """
-        # import pdb
-        # pdb.set_trace()
+        import pdb
+        pdb.set_trace()
         pred_loc, pred_label, pred_buk = self.network(x)
         num_matched_boxes = self.reduce_sum(F.cast(num_matched_boxes, mstype.float32)) # 27.0 mask的求和
 
@@ -568,7 +568,8 @@ class retinanetInferWithDecoder(nn.Cell):
         bbox_reg_pred, scores, bbox_cls_pred = bbox_reg_pred.squeeze(), scores.squeeze(), bbox_cls_pred.squeeze() # eval的时候batch_size是1，所以直接squeeze
         scores = ops.Sigmoid()(scores)
 
-        idx = [0,17424,21780,22869,23158,23239]
+        idx= [0,28224,35280,37044,37485,37606]
+        # idx = [0,17424,21780,22869,23158,23239]
         cat = ops.Concat(0)
         final_scores = Tensor([0.0])
         final_labels = Tensor([0]).astype(ms.int64)

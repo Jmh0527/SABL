@@ -29,6 +29,8 @@ def init_net_param(network, initialize_mode='xavier_uniform'):
                 p.set_data(initializer('normal', p.data.shape, p.data.dtype))
             elif 'fpn.P' in p.name:
                 p.set_data(initializer('xavier_uniform', p.data.shape, p.data.dtype))
+            elif 'network.conv' in p.name:
+                p.set_data(initializer('normal', p.data.shape, p.data.dtype))
         num += 1
     print('Initialize net parameters done!')
 

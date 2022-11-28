@@ -14,8 +14,8 @@ need_modelarts_dataset_unzip: True
 modelarts_dataset_unzip_name: "cocodataset"
 
 # ==============================================================================
-img_shape: [1056, 1056]
-num_retinanet_boxes: 23239 # 67995 / 9 = 7555 [9,9,9,9,9]变为[1,1,1,1,1]这里要同步修改
+img_shape: [1344, 1344] # [1056, 1056]
+num_retinanet_boxes: 37606  # 23239 # 67995 / 9 = 7555 [9,9,9,9,9]变为[1,1,1,1,1]这里要同步修改
 match_thershold: 0.5
 softnms_sigma: 0.5
 nms_thershold: 0.5
@@ -38,7 +38,7 @@ weight_decay: 0.00015 # 1.5e-4
 # network
 num_default: [1, 1, 1, 1, 1]  # [9, 9, 9, 9, 9] -> [1, 1, 1, 1, 1]
 extras_out_channels: [256, 256, 256, 256, 256]
-feature_size: [132, 66, 33, 17, 9]  # [75, 38, 19, 10, 5]
+feature_size: [168, 84, 42, 21, 11]#[132, 66, 33, 17, 9]  [75, 38, 19, 10, 5]
 aspect_ratios:
 - [0.5, 1.0, 2.0]
 - [0.5, 1.0, 2.0]

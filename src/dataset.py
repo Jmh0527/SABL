@@ -128,12 +128,12 @@ def preprocess_fn(img_id, image, box, is_training):
         new_image[:rows, :cols, :] = image.astype(np.float32)
         box[:,:4] *= scale
 
-        max_rows = 1056
-        max_cols = 1056
+        max_rows = 1344 #1056
+        max_cols = 1344 #1056
         padded_imgs = np.zeros((max_rows, max_cols, cns))
         padded_imgs[:rows + pad_h, :cols + pad_w, :] = new_image
 
-        return padded_imgs.astype(np.float32), box
+        return padded_imgs.astype(np.float32), box, scale
     
     def resizer_val(image, min_side, max_side):
         rows, cols, cns = image.shape
@@ -155,8 +155,8 @@ def preprocess_fn(img_id, image, box, is_training):
         new_image = np.zeros((rows + pad_h, cols + pad_w, cns)).astype(np.float32)
         new_image[:rows, :cols, :] = image.astype(np.float32)
 
-        max_rows = 1056 # 800的时候是832 700的时候是704 600的时候是608 608 1024时候是1056
-        max_cols = 1056 # 608 1024时候是1056 
+        max_rows = 1344 # 800的时候是832 700的时候是704 600的时候是608 608 1024时候是1056
+        max_cols = 1344 # 608 1024时候是1056 
         padded_imgs = np.zeros((max_rows, max_cols, cns))
         padded_imgs[:rows + pad_h, :cols + pad_w, :] = new_image
 
@@ -167,7 +167,7 @@ def preprocess_fn(img_id, image, box, is_training):
         input_h, input_w = input_shape
 
         # image = cv2.resize(image, (input_w, input_h))
-        image, scale = resizer_val(image,608,1024)
+        image, scale = resizer_val(image,800,1333)
         img_h, img_w, _ = image.shape # eval要返回resize之后的图片大小
 
         # When the channels of image is 1
@@ -188,12 +188,13 @@ def preprocess_fn(img_id, image, box, is_training):
         # Random crop
         box = box.astype(np.float32)
         image, box = random_sample_crop(image, box)
-        # ih, iw, _ = image.shape # 裁剪之后的尺寸 (457, 638, 3)
+        ih, iw, _ = image.shape # 裁剪之后的尺寸 (457, 638, 3)
 
         # Resize image
         # image = cv2.resize(image, (w, h)) # 把image进行了resize
-        image, box = resizer_train(image, box,608,1024) # box是乘过scale的
-        ih, iw, _ = image.shape # 取ih iw要放到这里才对
+        # image, box, scale = resizer_train(image, box, 608, 1024) # box是乘过scale的
+        image, box, scale = resizer_train(image,box,800,1333) # box是乘过scale的
+        # ih, iw, _ = image.shape # 取ih iw要放到这里才对
 
         # Flip image or not
         flip = _rand() < .5
@@ -205,13 +206,14 @@ def preprocess_fn(img_id, image, box, is_training):
             image = np.expand_dims(image, axis=-1)
             image = np.concatenate([image, image, image], axis=-1)
 
-        box[:, [0, 2]] = box[:, [0, 2]] / ih
-        box[:, [1, 3]] = box[:, [1, 3]] / iw
+        # box[:, [0, 2]] = box[:, [0, 2]] / ih
+        # box[:, [1, 3]] = box[:, [1, 3]] / iw
 
         if flip:
-            box[:, [1, 3]] = 1 - box[:, [3, 1]]
+            # box[:, [1, 3]] = 1 - box[:, [3, 1]]
+            box[:, [1, 3]] = iw*scale - box[:, [3, 1]]
 
-        box, box_weight, label, bucket, bucket_weight, num_match = retinanet_bboxes_encode(box)
+        box, box_weight, label, bucket, bucket_weight, num_match = retinanet_bboxes_encode(box, ih*scale, iw*scale)
         return image, box, box_weight, label, bucket, bucket_weight, num_match
 
     return _data_aug(image, box, is_training, image_size=config.img_shape)
@@ -476,10 +478,10 @@ def create_retinanet_dataset(mindrecord_file, batch_size, repeat_num, device_num
         trans_before_resize = [normalize_op]
         trans_after_resize = [change_swap_op]
 
-    # import pdb
-    # pdb.set_trace()
-    # for i, j in enumerate(ds):
-    #     image, box, label, bucket, num_match = compose_map_func(j[0].asnumpy(),j[1].asnumpy(), j[2].asnumpy())
+    import pdb
+    pdb.set_trace()
+    for i, j in enumerate(ds):
+        image, box, box_weight, label, bucket, bucket_weight, num_match = compose_map_func(j[0].asnumpy(),j[1].asnumpy(), j[2].asnumpy())
 
     ds = ds.map(operations=trans_before_resize, input_columns=["image"], python_multiprocessing=is_training,
                 num_parallel_workers=num_parallel_workers)

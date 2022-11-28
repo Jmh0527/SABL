@@ -101,6 +101,117 @@ y1, x1, y2, x2 = np.split(default_boxes_ltrb[:, :4], 4, axis=-1) # 这几行代�
 vol_anchors = (x2 - x1) * (y2 - y1) # 预设框的面积
 matching_threshold = config.match_thershold # match_thershold: 0.5
 
+def valid_flags(featmap_sizes, pad_shape, num_base_anchors):
+    """Generate valid flags of anchors in multiple feature levels.
+
+    Args:
+        featmap_sizes (list(tuple)): List of feature map sizes in
+            multiple feature levels.
+        pad_shape (tuple): The padded shape of the image.
+        device (str): Device where the anchors will be put on.
+
+    Return:
+        list(torch.Tensor): Valid flags of anchors in multiple levels.
+    """
+    multi_level_flags = []
+    for i in range(5):
+        anchor_stride = [(8, 8), (16, 16), (32, 32), (64, 64), (128, 128)][i]
+        feat_h, feat_w = featmap_sizes[i]
+        h, w = pad_shape[:2]
+        valid_feat_h = min(int(np.ceil(h / anchor_stride[1])), feat_h)
+        valid_feat_w = min(int(np.ceil(w / anchor_stride[0])), feat_w)
+        flags = single_level_valid_flags((feat_h, feat_w),
+                                        (valid_feat_h, valid_feat_w),num_base_anchors)
+        multi_level_flags.extend(flags)
+    return multi_level_flags
+
+def meshgrid(x, y, row_major=True):
+    """Generate mesh grid of x and y.
+
+    Args:
+        x (torch.Tensor): Grids of x dimension.
+        y (torch.Tensor): Grids of y dimension.
+        row_major (bool, optional): Whether to return y grids first.
+            Defaults to True.
+
+    Returns:
+        tuple[torch.Tensor]: The mesh grids of x and y.
+    """
+    # use shape instead of len to keep tracing while exporting to onnx
+    # xx = x.repeat(y.shape[0])
+    xx = np.tile(x,y.shape[0])
+    # yy = y.view(-1, 1).repeat(1, x.shape[0]).view(-1)
+    yy = np.tile(y.reshape(-1,1),(1,x.shape[0])).reshape(-1)
+    if row_major:
+        return xx, yy
+    else:
+        return yy, xx
+
+def single_level_valid_flags(featmap_size,
+                             valid_size,
+                             num_base_anchors):
+        """Generate the valid flags of anchor in a single feature map.
+
+        Args:
+            featmap_size (tuple[int]): The size of feature maps, arrange
+                as (h, w).
+            valid_size (tuple[int]): The valid size of the feature maps.
+            num_base_anchors (int): The number of base anchors.
+
+        Returns:
+            torch.Tensor: The valid flags of each anchor in a single level \
+                feature map.
+        """
+        feat_h, feat_w = featmap_size
+        valid_h, valid_w = valid_size
+        assert valid_h <= feat_h and valid_w <= feat_w
+        #valid_x = torch.zeros(feat_w, dtype=torch.bool, device=device)
+        valid_x = np.zeros(feat_w,dtype=np.bool)
+        # valid_y = torch.zeros(feat_h, dtype=torch.bool, device=device)
+        valid_y = np.zeros(feat_h,dtype=np.bool)
+        valid_x[:valid_w] = 1
+        valid_y[:valid_h] = 1
+        valid_xx, valid_yy = meshgrid(valid_x, valid_y)
+        valid = valid_xx & valid_yy
+        valid = np.tile(valid[:,None],
+                        (1,num_base_anchors)).reshape(-1)
+        # valid = valid[:, None].expand(valid.size(0),
+        #                               num_base_anchors).reshape(-1)
+        return valid
+def bbox_rescale(bboxes, scale_factor=1.0):
+    """Rescale bounding box w.r.t. scale_factor.
+
+    Args:
+        bboxes (Tensor): Shape (n, 4) for bboxes or (n, 5) for rois
+        scale_factor (float): rescale factor
+
+    Returns:
+        Tensor: Rescaled bboxes.
+    """
+
+    bboxes_ = bboxes
+    cx = (bboxes_[:, 0] + bboxes_[:, 2]) * 0.5
+    cy = (bboxes_[:, 1] + bboxes_[:, 3]) * 0.5
+    w = bboxes_[:, 2] - bboxes_[:, 0]
+    h = bboxes_[:, 3] - bboxes_[:, 1]
+    w = w * scale_factor
+    h = h * scale_factor
+    x1 = cx - 0.5 * w
+    x2 = cx + 0.5 * w
+    y1 = cy - 0.5 * h
+    y2 = cy + 0.5 * h
+    rescaled_bboxes = np.concatenate((x1[:,None], y1[:,None], x2[:,None], y2[:,None]), -1)
+    return rescaled_bboxes
+
+def topk_(matrix, K, axis=1):
+    column_index = np.arange(matrix.shape[1 - axis])[:, None]
+    topk_index = np.argpartition(matrix, K, axis=axis)[:, 0:K]
+    topk_data = matrix[column_index, topk_index]
+    topk_index_sort = np.argsort(topk_data, axis=axis)
+    topk_data_sort = topk_data[column_index, topk_index_sort]
+    topk_index_sort = topk_index[:,0:K][column_index,topk_index_sort]
+    return topk_data_sort, topk_index_sort
+
 def generate_buckets(proposals, num_buckets, scale_factor=1.0):
     """Generate buckets w.r.t bucket number and scale factor of proposals.
 
@@ -183,14 +294,6 @@ def bbox2bucket(proposals,
             - cls_weights: Bucketing estimation weights. \
                 Shape (n, num_buckets*2).
     """
-    # import pdb
-    # pdb.set_trace()
-    # generate buckets
-    # proposals[0]: tensor([536., 296., 568., 328.])
-    # bbox_rescale(proposals, 3)[0]: tensor([504., 264., 600., 360.])
-    # bucket_w[0]: tensor(6.8571) bucket_h[0]: tensor(6.8571)
-    # l_buckets[0]: tensor([507.4286, 514.2857, 521.1429, 528.0000, 534.8571, 541.7143, 548.5714]
-    # r_buckets[0]: tensor([596.5714, 589.7143, 582.8571, 576.0000, 569.1429, 562.2857, 555.4286]
     (bucket_w, bucket_h, l_buckets, r_buckets, t_buckets,
      d_buckets) = generate_buckets(proposals, num_buckets, scale_factor) # 生成了bucket的框
 
@@ -265,7 +368,7 @@ def bbox2bucket(proposals,
         bucket_cls_weights[:] = 1.0
     return offsets, offsets_weights, bucket_labels, bucket_cls_weights
 
-def retinanet_bboxes_encode(boxes):
+def retinanet_bboxes_encode(boxes,ih,iw):
     """
     Labels anchors with ground truth inputs.
 
@@ -312,14 +415,14 @@ def retinanet_bboxes_encode(boxes):
             t_boxes[:, i] = mask * bbox[i] + (1 - mask) * t_boxes[:, i] 
             # True的地方是boxes坐标，False的地方是其他bbox对应出来的boxes坐标 剩下的都是0
             # t_boxes:(ymin,xmin,ymax,xmax)
-    
+
     """判断方框所分配的GT"""
     pre_scores_for_bucket = pre_scores.reshape(-1, 9) # (7555, 9) 每9个框找到pre_scores最大的索引 再和index取交集 就是我们要找的方框索引
     index_for_bucket = pre_scores_for_bucket.argmax(-1) # index_for_bucket.shape:(7555,)
     for i, v in enumerate(index_for_bucket):
         index_for_bucket[i] = index_for_bucket[i] + 9 * i
 
-    index = np.nonzero(t_label) # 找到有目标的样本 index是一个tuple  index[0].shape (66,)
+    index = np.nonzero(t_label)[0] # 找到有目标的样本 index是一个tuple  index[0].shape (66,)
     index_for_bucket = np.intersect1d(index_for_bucket, index) # index_for_bucket.shape:(21,)
 
     t_boxes_for_bucket = np.zeros((config.num_retinanet_boxes, 4), dtype=np.float32)
@@ -327,8 +430,6 @@ def retinanet_bboxes_encode(boxes):
 
     proposals = default_square_boxes_ltrb[index_for_bucket//9]
     gt = t_boxes_for_bucket[index_for_bucket//9]
-    import pdb
-    pdb.set_trace()
     offsets, offsets_weights, bucket_labels, bucket_cls_weights = bbox2bucket(proposals,gt,14,3)
 
     bbox = np.zeros((config.num_retinanet_boxes, 28))
@@ -341,16 +442,27 @@ def retinanet_bboxes_encode(boxes):
     buk_label[index_for_bucket//9] = bucket_labels
     buk_label_weights[index_for_bucket//9] = bucket_cls_weights
 
+    """确定正样本 负样本 以及忽略的样本Anchors"""
+    import pdb 
+    pdb.set_trace()
+    featmap_sizes = np.tile(np.array(config.feature_size).reshape(-1,1),(1,2))
+    flags = valid_flags(featmap_sizes,(ih,iw),1)
+    # fm_exp = np.array([[100,152],[50,76],[25,38],[13,19],[7,10]])
+    # flags = valid_flags(fm_exp,(800,1088),9)
     temp = np.zeros(config.num_retinanet_boxes)
     temp[index_for_bucket//9] = t_label[index_for_bucket]
     t_label = temp
     for i in range(pre_scores_for_bucket.shape[0]):
-        if pre_scores_for_bucket[i].max() >= 0.4 and pre_scores_for_bucket[i].max() < 0.5: # 忽略iou在0.4-0.5之间的样本
-            t_label[i//9] = -1
+        if pre_scores_for_bucket[i].max() >= 0.4 and pre_scores_for_bucket[i].max() < 0.5: # 忽略iou在0.4-0.5之间的样本 以及忽略padding的0
+            t_label[i] = -1
+        elif flags[i] == False:
+            t_label[i] = -1
     t_label = t_label.astype(np.int32)
-    num_match = np.array([len(np.nonzero(t_label)[0])], dtype=np.int32)
+    num_match = np.array(len(np.where(t_label>0)[0]), dtype=np.int32) # 必须大于0才是正样本
+    # 最后靠labels确定正负样本以及忽略样本 所以bbox等回归参数是计算所有方框的 最后算loss的时候就只需要算正样本的就够了
+    # 针对-1 独热编码表示为全零
     # bboxes, labels, scores, confids = retinanetInferWithDecoder2(Tensor(default_square_boxes_ltrb).astype(ms.float32),Tensor(bbox).astype(ms.float32),Tensor(t_label),Tensor(buk_label)).retinanet_decode()
-    # bboxes, labels, scores, confids = retinanetInferWithDecoder(Tensor(default_square_boxes_ltrb).astype(ms.float32),Tensor(bbox).astype(ms.float32),Tensor(t_label),Tensor(buk_label)).retina_decode()
+    bboxes, labels, scores, confids = retinanetInferWithDecoder(Tensor(default_square_boxes_ltrb).astype(ms.float32),Tensor(bbox).astype(ms.float32),Tensor(t_label),Tensor(buk_label)).retina_decode()
     return bbox, bbox_weights, t_label, buk_label, buk_label_weights, num_match 
 
     """
@@ -377,39 +489,24 @@ def jaccard_numpy(box_a, box_b):
     union = area_a + area_b - inter
     return inter / union
 
-def bbox_rescale(bboxes, scale_factor=1.0):
-    """Rescale bounding box w.r.t. scale_factor.
 
-    Args:
-        bboxes (Tensor): Shape (n, 4) for bboxes or (n, 5) for rois
-        scale_factor (float): rescale factor
 
-    Returns:
-        Tensor: Rescaled bboxes.
-    """
 
-    bboxes_ = bboxes
-    cx = (bboxes_[:, 0] + bboxes_[:, 2]) * 0.5
-    cy = (bboxes_[:, 1] + bboxes_[:, 3]) * 0.5
-    w = bboxes_[:, 2] - bboxes_[:, 0]
-    h = bboxes_[:, 3] - bboxes_[:, 1]
-    w = w * scale_factor
-    h = h * scale_factor
-    x1 = cx - 0.5 * w
-    x2 = cx + 0.5 * w
-    y1 = cy - 0.5 * h
-    y2 = cy + 0.5 * h
-    rescaled_bboxes = np.concatenate((x1[:,None], y1[:,None], x2[:,None], y2[:,None]), -1)
-    return rescaled_bboxes
 
-def topk_(matrix, K, axis=1):
-    column_index = np.arange(matrix.shape[1 - axis])[:, None]
-    topk_index = np.argpartition(matrix, K, axis=axis)[:, 0:K]
-    topk_data = matrix[column_index, topk_index]
-    topk_index_sort = np.argsort(topk_data, axis=axis)
-    topk_data_sort = topk_data[column_index, topk_index_sort]
-    topk_index_sort = topk_index[:,0:K][column_index,topk_index_sort]
-    return topk_data_sort, topk_index_sort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class retinanetInferWithDecoder():
